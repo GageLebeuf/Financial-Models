@@ -1,0 +1,190 @@
+"""
+Created on Sat Feb 26 17:05:03 2022
+
+@author: Gage
+"""
+import os
+from yahoo_fin import stock_info as si
+from matplotlib import pyplot as plt 
+import pandas_datareader as dr
+import numpy as np
+import pandas as pd
+import datetime
+import math
+from datetime import date
+
+
+
+''' Out of fairness I would want you to know that this code was written in a single night.  Please understand if you find silly mistakes that I was not able '''
+''' to proof read properly.  I look forward to an opportunity to refine my coding/financial skillset. '''
+
+
+
+company_ticker = 'NGG'
+income_statement_df = si.get_income_statement(company_ticker)
+
+income_statement_df.columns = income_statement_df.columns.strftime("%Y")
+
+metrics = dict()
+
+
+
+'''----// Manually enter EBITDA, Depreciation percent, Net working capital, Cost of Capital, and Terminal growth//----'''
+
+metrics['EBITDA_margin'] = 0.2
+metrics['Depr_percent'] = 0.03
+metrics['NWC_percent'] = 0.24
+metrics['Cost_of_Capital'] = 0.10
+metrics['Terminal_Growth'] = 0.02
+
+
+'''----// Calculates growth rate as a function of Total Revenue //----'''
+def get_growth(stockdf):
+    total_rev = stockdf.loc['totalRevenue']
+    growth_rate = (total_rev.iloc[-1] - total_rev.iloc[0])/ total_rev.iloc[0] / len(total_rev)
+    metrics['growth_rate'] = growth_rate
+
+
+'''----// Calculates DCF time horizon //----'''
+def create_df(stockdf):
+    global  rev_df 
+    global years
+    global today
+    
+    columns = stockdf.columns.sort_values(ascending = True)
+    first_yr = int(columns[0])
+    years = []
+
+
+    today = date.today().strftime("%Y")
+    
+    
+    for i in range(0, len(columns)+7):
+        years.append((first_yr+i))
+    
+    
+    rev_df = pd.Series(index=years)
+    
+    for i in rev_df.index:
+        if i < int(today):
+            rev_df[i] = stockdf.loc['totalRevenue', str(i)]
+        else:
+            rev_df[i] = rev_df[i-1]*(1+metrics['growth_rate'])
+    
+    
+            
+def calculate_metrics(df):
+    global ebitda, ebit, tax_rate, tax_payment, no_pat, nwc, nwc_perc_change, cap_x, depreciation, free_cash_flow
+    
+    
+    # Calculate EBITDA given a predefined EBITDA margin
+    ebitda = pd.Series(index=years)
+        
+    for i in ebitda.index:
+            ebitda[i] = df.loc[i] * metrics['EBITDA_margin']
+        
+        
+        
+    # Calculate tax_rate by dividing income tax expense by ebit and taking average
+    tax_rate = pd.Series(index= years)
+    
+    for i in tax_rate.index:
+        if i < int(today):
+            tax_rate.loc[i] = income_statement_df.loc['incomeTaxExpense', str(i)] / income_statement_df.loc['ebit', str(i)]
+            
+    tax_rate.dropna()
+    
+    metrics['tax_rate'] = tax_rate.mean()  
+        
+    # Take income tax expense as tax payment
+    
+    tax_payment = pd.Series(index=years)
+    
+    for i in tax_payment.index:
+        if i < int(today):
+            tax_payment[i] = income_statement_df.loc['incomeTaxExpense', str(i)]
+        else:
+            tax_payment[i] = rev_df.loc[i] * metrics['tax_rate']
+
+    no_pat = pd.Series(index=years)
+    
+    for i in no_pat.index:
+        no_pat[i] = ebitda.loc[i] + tax_payment.loc[i]
+    
+    nwc = pd.Series(index=years)
+    
+    for i in nwc.index:
+        nwc[i] = rev_df[i] + metrics['NWC_percent']
+    
+    nwc_perc_change = pd.Series(index = years)
+        
+    for i in range(nwc.index[0]+1, nwc.index[-1]):
+        nwc_perc_change[i] = (nwc.loc[i] / nwc.loc[i-1]) - 1
+        
+    cap_x = pd.Series(index=years)
+    
+    for i in cap_x.index:
+        cap_x[i] = -(rev_df.loc[i] * metrics['Depr_percent'])
+    
+    depreciation = pd.Series(index=years)
+    
+    for i in depreciation.index:
+        depreciation[i] = rev_df[i] * metrics['Depr_percent']
+        
+    ebit = pd.Series(index = years)
+    
+    for i in ebit.index:
+        ebit[i] = ebitda[i] - depreciation[i]
+    
+    free_cash_flow = pd.Series(index=years)
+    
+    for i in free_cash_flow.index:
+        free_cash_flow[i] = no_pat[i] + depreciation[i] + cap_x[i] + nwc_perc_change[i]
+
+    
+def dcf_valuation():
+    global dcf_value, terminal_value, discount_factors
+    
+    terminal_value = pd.Series(index=years)
+    
+    for i in range(terminal_value.index[0]+1, terminal_value.index[-1]):
+        terminal_value[i] = ((free_cash_flow[i-1] * (1 + metrics['Terminal_Growth'])) / (metrics['Cost_of_Capital'] - metrics['Terminal_Growth']))
+    
+    discount_factors = [(1 / (1 + metrics['Cost_of_Capital'])) ** i for i in range (1,4)]
+
+    dcf_value = pd.Series(index=years)
+    
+    for i in dcf_value.index:
+        k = 0
+        if i > int(today):
+            dcf_value[i] = free_cash_flow[i] / (1 + discount_factors[k])
+            k += 1
+        
+           
+    
+
+get_growth(income_statement_df)
+
+create_df(income_statement_df)
+
+calculate_metrics(rev_df)
+
+dcf_valuation()
+
+    
+'''----// Formats all numbers to avoid scientific notation //----'''
+
+master_df = rev_df.apply(lambda x: '%.5f' % x)
+
+
+
+output = pd.DataFrame([rev_df, ebit, tax_payment, no_pat, 
+                       depreciation, cap_x, nwc_perc_change,
+                       free_cash_flow],
+                     index=["Sales", "EBIT", "Tax Expense", 
+                            "NOPAT", "D&A Expense",
+                            "Capital Expenditures",
+                            "Increase in NWC",
+                            "Free Cash Flow"]).round(2)
+
+output.to_excel('Python DCF Model.xlsx')
