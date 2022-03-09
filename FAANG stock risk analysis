@@ -1,0 +1,241 @@
+
+
+
+from __future__ import division
+import pandas as pd
+from pandas import Series,DataFrame
+import numpy as np
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+from datetime import datetime
+
+import yfinance as yf
+
+
+
+def get_stocks(stocks):
+    global end, start, prices
+    
+    end = datetime.now()
+    
+    
+    #Start date set to 1 year back
+    start = datetime(end.year-1,end.month,end.day) 
+    for stock in stocks:
+        globals()[stock] = yf.download(stock,start,end) 
+
+
+###################################################
+
+def moving_averages(stocks, days):
+    global prices
+    
+    for stock in stocks:
+        prices = yf.download(stock,start,end) 
+        averages = days
+        for avg in averages:
+            label = "MAvg for %s days" %(str(avg))
+            prices[label] = prices['Adj Close'].rolling(window = avg, center = False).mean()
+        prices[['Adj Close', 'MAvg for 10 days', 'MAvg for 25 days', 'MAvg for 50 days']].plot(subplots = False, figsize = (10,5))
+        plt.title(str(stock))
+        
+      
+
+#################################################
+
+#enter in stock price and volume and daily returns
+
+
+def daily_return_avgs(stocks):
+    for stock in stocks:
+        stock['Daily Return'] = stock['Adj Close'].pct_change()
+        stock['Daily Return'].plot(figsize=(14,5),legend=True,linestyle='--',marker='o')
+        plt.title('Daily returns')
+        plt.ylabel('Perc.')
+        plt.show()
+        sns.distplot(stock['Daily Return'].dropna(),bins=100,color='red')
+        plt.show()
+
+#################################################
+
+
+def correlation(stocks):
+    global close_compr
+    close_compr = pd.DataFrame()
+    for stock in stocks:
+        close_compr[str(stock)] = stock['Daily Return']
+        
+    sns.pairplot(close_compr.dropna())
+    plt.show()
+    corr = close_compr.corr()
+    print(corr)
+    # Generate a mask for the upper triangle
+    mask = np.zeros_like(corr, dtype=np.bool)
+    mask[np.triu_indices_from(mask)] = True
+    
+    # Set up the matplotlib figure
+    fig, ax = plt.subplots()
+    
+    # Draw the heatmap with the mask and correct aspect ratio
+    vmax = np.abs(corr.values[~mask]).max()
+    sns.heatmap(corr, mask=mask, cmap=plt.cm.PuOr, vmin=-vmax, vmax=vmax,
+                square=True, linecolor="lightgray", linewidths=1, ax=ax)
+    for i in range(len(corr)):
+        ax.text(i+0.5,len(corr)-(i+0.5), corr.columns[i], 
+                ha="center", va="center", rotation=45)
+        for j in range(i+1, len(corr)):
+            s = "{:.3f}".format(corr.values[i,j])
+            ax.text(j+0.5,len(corr)-(i+0.5),s, 
+                ha="center", va="center")
+    ax.axis("off")
+    plt.show()
+
+
+##################################################
+
+
+def risk_reward():
+    rets_filled = close_compr.dropna()
+    plt.figure(figsize=(8,5))
+    
+    plt.scatter(rets_filled.mean(),rets_filled.std(),s=25)
+    
+    plt.xlabel('Expected Return')
+    plt.ylabel('Risk')
+    
+    for label,x,y in zip(rets_filled.columns,rets_filled.mean(),rets_filled.std()):
+        plt.annotate(
+        label,
+        xy=(x,y),xytext=(-120,20),
+        textcoords = 'offset points',
+        arrowprops = dict(arrowstyle='->',connectionstyle = 'arc3,rad=-0.5'))
+
+##################################################
+
+def stock_monte_carlo(start_price,days,mu,sigma):
+    
+    price = np.zeros(days)
+    price[0] = start_price
+    
+    shock = np.zeros(days)
+    drift = np.zeros(days)
+    
+    for x in range(1,days):
+        
+        #Shock and drift formulas taken from the Monte Carlo formula
+        shock[x] = np.random.normal(loc=mu*dt,scale=sigma*np.sqrt(dt))
+        
+        drift[x] = mu * dt
+        
+        #New price = Old price + Old price*(shock+drift)
+        price[x] = price[x-1] + (price[x-1] * (drift[x]+shock[x]))
+        
+    return price
+
+
+##################################################
+
+
+
+def monte_carlo_simulation_complete(stocks, runs):
+    global days, dt, simulations
+    #delta t
+    days = 365
+    
+    dt = 1/365
+    
+    # Predicting Future Risk and Value of Stocks (Monte Carlo simulation)
+    
+    for stock in stocks:
+        
+        
+        
+        mu = stock['Daily Return'].mean()
+        
+        sigma = stock['Daily Return'].std()
+        
+        
+        start_price = stock['Adj Close'][0]
+        
+        for run in range(1,100):
+            plt.plot(stock_monte_carlo(start_price,days,mu,sigma))
+        
+        plt.xlabel('Days')
+        plt.ylabel('Price')
+        plt.ylim([start_price - 0.25*start_price, start_price + 0.25*start_price])
+        plt.title('Monte Carlo Analysis for Google')
+        plt.show()
+        
+        
+        
+        
+        
+        
+        #### Monte Carlo Price Distribution
+        
+        runs = 10000
+        
+        simulations = np.zeros(runs)
+        
+        for run in range(1,runs):
+            simulations[run] = stock_monte_carlo(start_price,days,mu,sigma)[days-1]
+            
+        q = np.percentile(simulations,1)
+        
+        b = np.percentile(simulations,99)
+        
+        plt.hist(simulations,bins=200,range = [simulations.mean() - 3*simulations.std(), simulations.mean() + 3*simulations.std()])
+        
+        plt.figtext(0.6,0.8,s="Start price: $%.2f" %start_price)
+        
+        plt.figtext(0.6,0.7,"Mean final price: $%.2f" % simulations.mean())
+        
+        plt.figtext(0.6,0.6,"VaR(0.99): $%.2f" % (start_price -q,))
+        
+        plt.figtext(0.15,0.7, "Red lines = 99% CI")
+        
+        plt.figtext(0.15,0.6, "q(0.99): $%.2f" % q)
+        
+        plt.axvline(x=q, linewidth=1, color='r')
+        
+        plt.axvline(x=b, linewidth=1, color='r')
+        
+        plt.title(u"Final price distribution after %s days" %days, weight='bold')
+        
+        plt.show()
+
+
+
+
+##################################################
+#################################################
+
+stocks = ['AAPL','GOOG','MSFT','AMZN','NFLX']
+get_stocks(stocks)
+
+sns.set_style('whitegrid')
+
+
+stocks_1 = [AAPL, GOOG, MSFT, AMZN, NFLX]
+
+## Make master function that will take stocks_1 and then transform it into a str for other functions
+
+
+moving_averages(stocks, [10,25,50])
+
+daily_return_avgs(stocks_1)
+
+
+correlation(stocks_1)
+
+risk_reward()
+
+
+monte_carlo_simulation_complete(stocks_1, 10000)
+
+
+
+
+
