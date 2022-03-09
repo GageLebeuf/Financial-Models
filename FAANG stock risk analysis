@@ -1,5 +1,9 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Mar  3 13:54:48 2022
 
-
+@author: Gage
+"""
 
 from __future__ import division
 import pandas as pd
@@ -48,24 +52,28 @@ def moving_averages(stocks, days):
 #enter in stock price and volume and daily returns
 
 
-def daily_return_avgs(stocks):
-    for stock in stocks:
-        stock['Daily Return'] = stock['Adj Close'].pct_change()
-        stock['Daily Return'].plot(figsize=(14,5),legend=True,linestyle='--',marker='o')
-        plt.title('Daily returns')
+def daily_return_avgs(stocks, stocks_2):
+    dictionary = dict(zip(stocks_2, stocks))
+    for x,y in dictionary.items():
+        y['Daily Return'] = y['Adj Close'].pct_change()
+        y['Daily Return'].plot(figsize=(14,5),legend=True,linestyle='--',marker='o')
+        plt.title('Daily returns of '+ str(x))
         plt.ylabel('Perc.')
         plt.show()
-        sns.distplot(stock['Daily Return'].dropna(),bins=100,color='red')
+        sns.distplot(y['Daily Return'].dropna(),bins=100,color='red')
+        plt.title('Daily returns distribution of ' + str(x))
         plt.show()
 
 #################################################
 
 
-def correlation(stocks):
-    global close_compr
+def correlation(stocks, stocks_2):
+    global close_compr, corr
     close_compr = pd.DataFrame()
     for stock in stocks:
         close_compr[str(stock)] = stock['Daily Return']
+        
+    close_compr.columns = stocks_2
         
     sns.pairplot(close_compr.dropna())
     plt.show()
@@ -139,8 +147,10 @@ def stock_monte_carlo(start_price,days,mu,sigma):
 
 
 
-def monte_carlo_simulation_complete(stocks, runs):
+def monte_carlo_simulation_complete(stocks, stocks_2):
     global days, dt, simulations
+    
+    runs = 10000
     #delta t
     days = 365
     
@@ -148,16 +158,17 @@ def monte_carlo_simulation_complete(stocks, runs):
     
     # Predicting Future Risk and Value of Stocks (Monte Carlo simulation)
     
-    for stock in stocks:
+    dictionary = dict(zip(stocks_2, stocks))
+    for x,y in dictionary.items():
         
         
         
-        mu = stock['Daily Return'].mean()
+        mu = y['Daily Return'].mean()
         
-        sigma = stock['Daily Return'].std()
+        sigma = y['Daily Return'].std()
         
         
-        start_price = stock['Adj Close'][0]
+        start_price = y['Adj Close'][0]
         
         for run in range(1,100):
             plt.plot(stock_monte_carlo(start_price,days,mu,sigma))
@@ -165,7 +176,7 @@ def monte_carlo_simulation_complete(stocks, runs):
         plt.xlabel('Days')
         plt.ylabel('Price')
         plt.ylim([start_price - 0.25*start_price, start_price + 0.25*start_price])
-        plt.title('Monte Carlo Analysis for Google')
+        plt.title('Monte Carlo Analysis for ' + str(x))
         plt.show()
         
         
@@ -202,7 +213,7 @@ def monte_carlo_simulation_complete(stocks, runs):
         
         plt.axvline(x=b, linewidth=1, color='r')
         
-        plt.title(u"Final price distribution after %s days" %days, weight='bold')
+        plt.title(u"Final price distribution after 365 days for " + str(x), weight='bold')
         
         plt.show()
 
@@ -218,24 +229,24 @@ get_stocks(stocks)
 sns.set_style('whitegrid')
 
 
+
 stocks_1 = [AAPL, GOOG, MSFT, AMZN, NFLX]
+
 
 ## Make master function that will take stocks_1 and then transform it into a str for other functions
 
 
 moving_averages(stocks, [10,25,50])
 
-daily_return_avgs(stocks_1)
+daily_return_avgs(stocks_1, stocks)
 
 
-correlation(stocks_1)
+correlation(stocks_1, stocks)
 
 risk_reward()
 
 
-monte_carlo_simulation_complete(stocks_1, 10000)
-
-
+monte_carlo_simulation_complete(stocks_1, stocks)
 
 
 
